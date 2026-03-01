@@ -32,4 +32,4 @@ Use these prompts in Cursor (with the Lex AI MCP enabled) to verify the Document
 
 **Prompt:** Use the Lex AI MCP to scrape and index the Unkey docs from `https://unkey.com/docs` with max depth 2 and at most 20 pages. After it finishes, list the indexed sources again.
 
-*Expected:* MCP calls `scrape_docs`, then `list_sources`; the new Unkey source appears in the list.
+*Expected:* `scrape_docs` returns immediately (runs in background). Wait 5–10 minutes, then run `list_sources` to confirm the Unkey source appears. Use `search_docs` to query.

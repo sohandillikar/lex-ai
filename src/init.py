@@ -10,11 +10,20 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 
-from dotenv import dotenv_values
+try:
+    from dotenv import dotenv_values
+except ModuleNotFoundError:
+    print("Installing required dependency: python-dotenv")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "python-dotenv"],
+        check=True,
+    )
+    from dotenv import dotenv_values
 
 from src.config import PROJECT_ROOT, SERVER_NAME
 
@@ -38,13 +47,20 @@ def _load_env() -> dict[str, str]:
 
 
 def _detect_python() -> str:
-    python_path = shutil.which("python3")
-    if not python_path:
-        python_path = shutil.which("python")
-    if not python_path:
-        print("Error: could not find python3 or python on PATH.")
-        sys.exit(1)
-    return python_path
+    # Prefer the Python running this script (avoids Windows Store stub)
+    current = sys.executable
+    if current and Path(current).exists():
+        # Skip Windows Store alias (python3.exe in WindowsApps is a stub)
+        if "WindowsApps" not in current.replace("\\", "/"):
+            return current
+    for name in ("python3", "python"):
+        python_path = shutil.which(name)
+        if python_path and "WindowsApps" not in python_path.replace("\\", "/"):
+            return python_path
+    if current and Path(current).exists():
+        return current
+    print("Error: could not find a valid Python. Disable 'python3.exe' in Settings → App execution aliases.")
+    sys.exit(1)
 
 
 def _build_server_config(env: dict[str, str], python_path: str) -> dict:
@@ -55,6 +71,7 @@ def _build_server_config(env: dict[str, str], python_path: str) -> dict:
         "cwd": cwd,
         "env": {
             "PYTHONPATH": cwd,
+            "PYTHONUNBUFFERED": "1",
             "DATABASE_URL": env["DATABASE_URL"],
             "OPENAI_API_KEY": env["OPENAI_API_KEY"],
         },

@@ -25,11 +25,73 @@ def check_python() -> None:
         sys.exit(1)
 
 
+def _docker_is_running() -> bool:
+    """Return True if Docker daemon is responsive."""
+    result = subprocess.run(
+        ["docker", "info"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _start_docker_desktop() -> bool:
+    """Attempt to start Docker Desktop. Returns True if launch was attempted."""
+    if sys.platform == "win32":
+        paths = [
+            Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Docker" / "Docker" / "Docker Desktop.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Docker" / "Docker Desktop.exe",
+        ]
+        for exe in paths:
+            if exe.exists():
+                log(f"Starting Docker Desktop ({exe})...")
+                subprocess.Popen(
+                    [str(exe)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True
+    elif sys.platform == "darwin":
+        docker_app = Path("/Applications/Docker.app")
+        if docker_app.exists():
+            log("Starting Docker Desktop...")
+            subprocess.Popen(
+                ["open", "-a", "Docker"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+    return False
+
+
+def _wait_for_docker(timeout: int = 90) -> bool:
+    """Wait for Docker daemon to become ready. Returns True if ready."""
+    log("Waiting for Docker to start...")
+    start = time.time()
+    while (time.time() - start) < timeout:
+        if _docker_is_running():
+            return True
+        time.sleep(3)
+    return False
+
+
 def check_docker() -> None:
-    """Ensure Docker is installed and available."""
-    docker = shutil.which("docker")
-    if not docker:
-        log("Error: docker not found. Please install Docker first.")
+    """Ensure Docker is installed and available. Start Docker Desktop if needed."""
+    if not shutil.which("docker"):
+        log("Error: docker not found. Please install Docker Desktop first.")
+        sys.exit(1)
+
+    if _docker_is_running():
+        return
+
+    log("Docker is not running.")
+    if _start_docker_desktop():
+        if not _wait_for_docker():
+            log("Error: Docker did not start in time. Please start Docker Desktop manually and run setup again.")
+            sys.exit(1)
+    else:
+        log("Error: Please start Docker Desktop manually and run setup again.")
         sys.exit(1)
 
 
@@ -119,6 +181,29 @@ def wait_for_postgres() -> None:
     sys.exit(1)
 
 
+def ensure_lex_ai_database() -> None:
+    """Ensure the lex_ai database exists (handles reused volumes from older setups)."""
+    log("Ensuring lex_ai database exists...")
+    result = subprocess.run(
+        [
+            "docker", "compose", "exec", "-T", "postgres",
+            "psql", "-U", "postgres", "-d", "postgres",
+            "-c", "CREATE DATABASE lex_ai;",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+    )
+    out = (result.stderr or b"") + (result.stdout or b"")
+    if result.returncode == 0:
+        log("Database lex_ai ready.")
+    elif b"already exists" in out:
+        log("Database lex_ai already exists.")
+    else:
+        log("Error: Could not create lex_ai database. Try: docker compose down -v && docker compose up -d")
+        log("Then run setup again.")
+        sys.exit(1)
+
+
 def main() -> None:
     check_python()
     check_docker()
@@ -134,6 +219,7 @@ def main() -> None:
     crawl4ai_setup()
 
     wait_for_postgres()
+    ensure_lex_ai_database()
 
     log("Setting up MCP server...")
     client = os.environ.get("LEX_AI_MCP_CLIENT", "").lower()

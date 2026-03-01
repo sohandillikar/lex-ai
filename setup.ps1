@@ -4,15 +4,36 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-# Use python or python3, whichever is available
+# Prefer Python 3.11 or 3.12 (good wheel support). Fall back to python/python3.
 $python = $null
-if (Get-Command python -ErrorAction SilentlyContinue) {
-    $python = "python"
-} elseif (Get-Command python3 -ErrorAction SilentlyContinue) {
-    $python = "python3"
-} else {
-    Write-Error "python or python3 not found. Please install Python 3.11+ first."
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    foreach ($ver in @("3.11", "3.12", "3.13")) {
+        $out = & py -$ver -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $out) {
+            $python = "py", "-$ver"
+            break
+        }
+    }
+}
+if (-not $python) {
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        $exe = (Get-Command python).Source
+        if ($exe -notmatch "WindowsApps") { $python = "python" }
+    }
+}
+if (-not $python) {
+    if (Get-Command python3 -ErrorAction SilentlyContinue) {
+        $exe = (Get-Command python3).Source
+        if ($exe -notmatch "WindowsApps") { $python = "python3" }
+    }
+}
+if (-not $python) {
+    Write-Error "Python 3.11+ not found. Install from python.org and avoid the Windows Store alias."
     exit 1
 }
 
-& $python setup.py
+if ($python -is [array]) {
+    & $python[0] $python[1..($python.Length-1)] setup.py
+} else {
+    & $python setup.py
+}

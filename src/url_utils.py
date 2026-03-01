@@ -6,7 +6,8 @@ Provides normalization, validation, and formatting for documentation URLs.
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse, urlunparse
+import urllib.request
+from urllib.parse import urljoin, urlparse, urlunparse
 
 
 # Basic URL validation pattern (scheme + netloc required)
@@ -65,3 +66,44 @@ def is_valid_url(url: str) -> bool:
     """Convenience: return True if URL is valid."""
     valid, _ = validate_url(url)
     return valid
+
+
+# Markdown link pattern: [text](url)
+_MD_LINK_PATTERN = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+
+
+def fetch_llms_txt_urls(base_url: str, max_urls: int = 50) -> list[str] | None:
+    """
+    Fetch llms.txt from a docs URL and extract doc page URLs.
+    Returns list of URLs, or None if llms.txt not found.
+    """
+    base_url = base_url.rstrip("/")
+    llms_url = f"{base_url}/llms.txt"
+    try:
+        with urllib.request.urlopen(llms_url, timeout=10) as resp:
+            if resp.status != 200:
+                return None
+            text = resp.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    base_parsed = urlparse(base_url)
+    base_netloc = base_parsed.netloc
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    for match in _MD_LINK_PATTERN.finditer(text):
+        link_url = match.group(2).strip()
+        if not link_url or link_url.startswith("#"):
+            continue
+        full_url = urljoin(base_url + "/", link_url)
+        parsed = urlparse(full_url)
+        if parsed.netloc != base_netloc:
+            continue
+        if full_url not in seen:
+            seen.add(full_url)
+            urls.append(full_url)
+            if len(urls) >= max_urls:
+                break
+
+    return urls if urls else None

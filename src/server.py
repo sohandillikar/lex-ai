@@ -2,28 +2,19 @@
 MCP server for lex-ai.
 
 Exposes documentation search and scrape tools to Cursor and Claude Code.
+All heavy imports are lazy to keep startup fast.
 """
 from __future__ import annotations
 
-import logging
+import sys
 
-from dotenv import load_dotenv
+# Line-buffer stdout so MCP JSON-RPC responses flush immediately
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+
 from mcp.server.fastmcp import FastMCP
 
-from src.db import get_connection, get_page_chunks, init_db, list_sources_with_counts, search
-from src.embeddings import embed_query
-from src.health import check_all, format_health_report
-from src.scrape import crawl_and_index
-
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
-
-mcp = FastMCP(
-    "Documentation Search",
-    version="0.2.0",
-)
+mcp = FastMCP("Documentation Search")
 
 _conn = None
 
@@ -31,6 +22,9 @@ _conn = None
 def _get_conn():
     global _conn
     if _conn is None:
+        from dotenv import load_dotenv
+        load_dotenv()
+        from src.db import get_connection, init_db
         _conn = get_connection()
         init_db(_conn)
     return _conn
@@ -43,6 +37,7 @@ def list_sources() -> str:
     Call this tool first to discover what documentation is available before
     searching, so you can use the correct source_url filter in search_docs.
     """
+    from src.db import list_sources_with_counts
     conn = _get_conn()
     sources = list_sources_with_counts(conn)
     if not sources:
@@ -69,6 +64,8 @@ def search_docs(query: str, source_url: str = "", limit: int = 5) -> str:
                     all indexed docs.
         limit: Number of results to return (default 5, max 20).
     """
+    from src.db import search
+    from src.embeddings import embed_query
     conn = _get_conn()
 
     if not query.strip():
@@ -110,6 +107,7 @@ def get_page(page_url: str) -> str:
     Args:
         page_url: The exact page URL as returned by search_docs.
     """
+    from src.db import get_page_chunks
     conn = _get_conn()
     chunks = get_page_chunks(conn, page_url)
 
@@ -130,22 +128,28 @@ def health_check() -> str:
     Use this to verify your setup before scraping or searching. Returns status
     for each dependency.
     """
+    from src.health import check_all, format_health_report
     checks = check_all()
     return format_health_report(checks)
 
 
 @mcp.tool()
-async def scrape_docs(url: str, max_depth: int = 3, max_pages: int = 50) -> str:
+def scrape_docs(url: str, max_depth: int = 3, max_pages: int = 50, background: bool = True) -> str:
     """Scrape and index documentation from a URL so it becomes searchable.
 
     This crawls the documentation site, converts pages to markdown, chunks
     the content, generates embeddings, and stores everything in the database.
     After scraping, the documentation will be available via search_docs.
 
+    By default runs in background so the chat doesn't timeout. Use list_sources
+    after a few minutes to check when indexing is complete.
+
     Args:
-        url: The documentation URL to scrape (e.g. "https://docs.stripe.com/").
+        url: The documentation URL to scrape (e.g. "https://unkey.com/docs").
         max_depth: How many link levels deep to crawl (default 3).
         max_pages: Maximum number of pages to crawl (default 50).
+        background: If True (default), run in background and return immediately.
+                    If False, wait for completion (may timeout on large scrapes).
     """
     if not url.strip():
         return "Please provide a URL to scrape."
@@ -153,8 +157,25 @@ async def scrape_docs(url: str, max_depth: int = 3, max_pages: int = 50) -> str:
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
 
-    conn = _get_conn()
-    return await crawl_and_index(url, max_depth, max_pages, conn=conn, verbose=False)
+    import subprocess
+    from src.config import PROJECT_ROOT
+
+    if background:
+        # Run in subprocess so MCP returns immediately; scrape continues independently
+        subprocess.Popen(
+            [sys.executable, "-m", "src.scrape", url, "--max-depth", str(max_depth), "--max-pages", str(max_pages)],
+            cwd=str(PROJECT_ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return f"Scraping started in background: {url} (depth={max_depth}, max_pages={max_pages}). This typically takes 5–10 minutes. Run list_sources in a few minutes to check when it's done, then search_docs to query the indexed docs."
+    else:
+        # Synchronous: may timeout on large scrapes
+        import asyncio
+        from src.scrape import crawl_and_index
+        conn = _get_conn()
+        return asyncio.run(crawl_and_index(url, max_depth, max_pages, conn=conn, verbose=True))
 
 
 if __name__ == "__main__":

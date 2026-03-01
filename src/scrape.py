@@ -7,8 +7,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import logging
 import sys
+
+# Fix Windows console encoding: Crawl4AI/Rich print Unicode (e.g. →) that cp1252 can't encode
+if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -25,7 +31,7 @@ from src.db import delete_source, get_connection, init_db, insert_chunks
 from src.embeddings import embed_texts
 from src.exceptions import CrawlError, ValidationError
 from src.types import Chunk
-from src.url_utils import ensure_scheme, normalize_source_url, validate_url
+from src.url_utils import ensure_scheme, fetch_llms_txt_urls, normalize_source_url, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -76,26 +82,56 @@ async def crawl_and_index(
         if existing:
             log(f"Removed {existing} existing chunks for {source_url}")
 
-    log(f"\n--- Crawling {url} (depth={max_depth}, max_pages={max_pages}) ---\n")
-
-    config = CrawlerRunConfig(
-        deep_crawl_strategy=BFSDeepCrawlStrategy(
-            max_depth=max_depth,
-            include_external=False,
-            max_pages=max_pages,
-        ),
-        markdown_generator=DefaultMarkdownGenerator(),
-        verbose=False,
-    )
-
-    async with AsyncWebCrawler() as crawler:
-        results = await crawler.arun(url, config=config)
-
-    if not isinstance(results, list):
-        results = [results]
-
-    successful = [r for r in results if r.success and r.markdown and r.markdown.strip()]
-    log(f"Crawled {len(results)} pages, {len(successful)} with content\n")
+    # Try llms.txt first (faster, works for Unkey and other llms.txt-enabled docs)
+    urls_from_llms = fetch_llms_txt_urls(url, max_urls=max_pages)
+    if urls_from_llms:
+        log(f"\n--- Using llms.txt index ({len(urls_from_llms)} pages) ---\n")
+        config = CrawlerRunConfig(
+            markdown_generator=DefaultMarkdownGenerator(),
+            verbose=False,
+            page_timeout=30_000,
+            delay_before_return_html=1.0,
+        )
+        results = []
+        async with AsyncWebCrawler() as crawler:
+            for i, u in enumerate(urls_from_llms):
+                if verbose:
+                    print(f"  [{i+1}/{len(urls_from_llms)}] {u}", flush=True)
+                try:
+                    r = await asyncio.wait_for(crawler.arun(u, config=config), timeout=45)
+                    r = r[0] if isinstance(r, list) and r else r
+                    if r and getattr(r, "success", False) and getattr(r, "markdown", ""):
+                        results.append(r)
+                except (asyncio.TimeoutError, Exception):
+                    pass
+        successful = results
+        log(f"Crawled {len(urls_from_llms)} pages, {len(successful)} with content\n")
+    else:
+        log(f"\n--- Crawling {url} (depth={max_depth}, max_pages={max_pages}) ---\n")
+        config = CrawlerRunConfig(
+            deep_crawl_strategy=BFSDeepCrawlStrategy(
+                max_depth=max_depth,
+                include_external=False,
+                max_pages=max_pages,
+            ),
+            markdown_generator=DefaultMarkdownGenerator(),
+            verbose=False,
+            page_timeout=30_000,
+            delay_before_return_html=1.0,
+        )
+        async with AsyncWebCrawler() as crawler:
+            try:
+                raw = await asyncio.wait_for(crawler.arun(url, config=config), timeout=600)
+                results = raw if isinstance(raw, list) else [raw]
+            except asyncio.TimeoutError:
+                if owns_conn:
+                    conn.close()
+                raise CrawlError(
+                    "Crawl timed out after 10 minutes. Try fewer pages or use a site with llms.txt.",
+                    hint="Unkey (unkey.com/docs) supports llms.txt for faster indexing.",
+                ) from None
+        successful = [r for r in results if r.success and r.markdown and r.markdown.strip()]
+        log(f"Crawled {len(results)} pages, {len(successful)} with content\n")
 
     if not successful:
         if owns_conn:
