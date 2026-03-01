@@ -27,25 +27,34 @@ python setup.py
 
 This starts PostgreSQL, installs Python dependencies and Playwright browsers (Crawl4AI), creates `.env` from `.env.example` if needed, and runs the MCP config wizard. Edit `.env` to add your OpenAI API key if you just created it.
 
+**Non-interactive setup:** Set `LEX_AI_MCP_CLIENT=cursor` or `LEX_AI_MCP_CLIENT=claude` to skip the client prompt.
+
 ## Usage
 
 ### Scrape documentation
 
-**Option A — CLI:** Run the scraper and enter a URL when prompted:
+**Option A — CLI:** Run the scraper with arguments or interactively:
 
 ```bash
-python -m src.scrape
+python -m src.scrape https://docs.example.com --max-pages 100
+python -m src.scrape --dry-run https://docs.example.com
+python -m src.scrape  # prompts for URL
 ```
-
-You’ll be asked for URL, max depth (default 3), and max pages (default 200).
 
 **Option B — MCP:** Use the `scrape_docs` tool from Cursor or Claude Code to crawl and index a URL; no CLI needed.
 
-### Connect to Cursor or Claude Code
+### Configure MCP client
 
-After setup, `src.init` will have added the **lex-ai** MCP server to your config. Restart Cursor or Claude Code so they pick it up.
+```bash
+python -m src.init --cursor   # For Cursor (~/.cursor/mcp.json)
+python -m src.init --claude   # For Claude Code (.mcp.json)
+```
 
-Set `OPENAI_API_KEY` and `DATABASE_URL` in your environment when using Claude Code.
+After setup, restart Cursor or Claude Code. Set `OPENAI_API_KEY` and `DATABASE_URL` when using Claude Code.
+
+## Configuration
+
+Override defaults via environment variables: `LEX_AI_EMBEDDING_BATCH_SIZE`, `LEX_AI_CHUNK_TARGET_TOKENS`, `LEX_AI_DEFAULT_MAX_DEPTH`, `LEX_AI_DEFAULT_MAX_PAGES`, etc. See `src/config.py` for all options.
 
 ## MCP tools
 
@@ -55,6 +64,14 @@ Set `OPENAI_API_KEY` and `DATABASE_URL` in your environment when using Claude Co
 | `search_docs`  | Semantic search over indexed docs. Args: `query`, optional `source_url`, `limit` (default 5, max 20).         |
 | `get_page`     | Return full content of a page by URL (e.g. from a `search_docs` result).                                      |
 | `scrape_docs`  | Crawl and index a documentation URL. Args: `url`, optional `max_depth` (default 3), `max_pages` (default 50). |
+| `health_check` | Verify PostgreSQL and OpenAI connectivity. Use before scraping to confirm setup.                             |
+
+## Tests
+
+```bash
+pip install pytest pytest-asyncio
+pytest tests/ -v
+```
 
 ## Architecture
 
