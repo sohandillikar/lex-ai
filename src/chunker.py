@@ -12,9 +12,13 @@ def _token_len(text: str) -> int:
     return len(_encoder.encode(text))
 
 
+_HEADER_PATTERN = re.compile(r"^(#{1,3})\s+(.+)$", re.MULTILINE)
+_SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
+
+
 def _split_by_headers(markdown: str) -> list[dict]:
     """Split markdown into sections based on h1/h2/h3 headers."""
-    pattern = re.compile(r"^(#{1,3})\s+(.+)$", re.MULTILINE)
+    pattern = _HEADER_PATTERN
     sections: list[dict] = []
     last_end = 0
     current_title: str | None = None
@@ -84,7 +88,7 @@ def _split_by_token_limit(text: str, max_tokens: int) -> list[str]:
 
 def _split_sentences(text: str, target: int) -> list[str]:
     """Split by sentence boundaries when paragraphs are too large."""
-    sentences = re.split(r"(?<=[.!?])\s+", text)
+    sentences = _SENTENCE_PATTERN.split(text)
     chunks: list[str] = []
     current = ""
     for sentence in sentences:
@@ -139,8 +143,8 @@ def chunk_markdown(
         for content in overlapped:
             if content.strip():
                 # Cap at embedding API limit (overlap can push a chunk over)
-                if _token_len(content) > MAX_CHUNK_TOKENS:
-                    tokens = _encoder.encode(content)
+                tokens = _encoder.encode(content)
+                if len(tokens) > MAX_CHUNK_TOKENS:
                     content = _encoder.decode(tokens[:MAX_CHUNK_TOKENS])
                 all_chunks.append({
                     "source_url": source_url,

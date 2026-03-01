@@ -10,8 +10,19 @@ Scrape documentation from any URL and search it via an MCP server in Cursor or C
 
 ## Setup
 
+**macOS / Linux (or Git Bash / WSL on Windows):**
 ```bash
 ./setup.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+.\setup.ps1
+```
+
+**Any platform (run directly with Python):**
+```bash
+python setup.py
 ```
 
 This starts PostgreSQL, installs Python dependencies and Playwright browsers (Crawl4AI), creates `.env` from `.env.example` if needed, and runs the MCP config wizard. Edit `.env` to add your OpenAI API key if you just created it.

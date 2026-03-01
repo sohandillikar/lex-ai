@@ -30,6 +30,15 @@ def init_db(conn: psycopg.Connection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_doc_chunks_embedding
         ON doc_chunks USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_doc_chunks_source_url
+        ON doc_chunks (source_url)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_doc_chunks_page_url
+        ON doc_chunks (page_url)
     """)
 
 
@@ -45,20 +54,22 @@ def insert_chunks(conn: psycopg.Connection, chunks: list[dict]) -> int:
     if not chunks:
         return 0
     with conn.cursor() as cur:
-        for chunk in chunks:
-            cur.execute(
-                """
-                INSERT INTO doc_chunks (source_url, page_url, title, content, embedding)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
+        cur.executemany(
+            """
+            INSERT INTO doc_chunks (source_url, page_url, title, content, embedding)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            [
                 (
-                    chunk["source_url"],
-                    chunk["page_url"],
-                    chunk.get("title"),
-                    chunk["content"],
-                    chunk["embedding"],
-                ),
-            )
+                    c["source_url"],
+                    c["page_url"],
+                    c.get("title"),
+                    c["content"],
+                    c["embedding"],
+                )
+                for c in chunks
+            ],
+        )
     return len(chunks)
 
 
@@ -67,31 +78,37 @@ def search(
     query_embedding: list[float],
     source_url: str | None = None,
     limit: int = 5,
+    ef_search: int = 40,
 ) -> list[dict]:
     limit = min(max(limit, 1), 20)
+
+    # Tune HNSW search for this query (higher = better recall, lower = faster)
+    conn.execute("SET hnsw.ef_search = %s", (ef_search,))
 
     if source_url:
         rows = conn.execute(
             """
+            WITH q AS (SELECT %s::vector AS v)
             SELECT id, source_url, page_url, title, content,
-                   1 - (embedding <=> %s::vector) AS similarity
+                   1 - (embedding <=> (SELECT v FROM q)) AS similarity
             FROM doc_chunks
             WHERE source_url = %s
-            ORDER BY embedding <=> %s::vector
+            ORDER BY embedding <=> (SELECT v FROM q)
             LIMIT %s
             """,
-            (query_embedding, source_url, query_embedding, limit),
+            (query_embedding, source_url, limit),
         ).fetchall()
     else:
         rows = conn.execute(
             """
+            WITH q AS (SELECT %s::vector AS v)
             SELECT id, source_url, page_url, title, content,
-                   1 - (embedding <=> %s::vector) AS similarity
+                   1 - (embedding <=> (SELECT v FROM q)) AS similarity
             FROM doc_chunks
-            ORDER BY embedding <=> %s::vector
+            ORDER BY embedding <=> (SELECT v FROM q)
             LIMIT %s
             """,
-            (query_embedding, query_embedding, limit),
+            (query_embedding, limit),
         ).fetchall()
 
     return [

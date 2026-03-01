@@ -1,36 +1,19 @@
 #!/usr/bin/env bash
+# Setup script for macOS and Linux (also works in Git Bash and WSL on Windows).
+# For native Windows PowerShell, use setup.ps1 instead.
 set -e
 
 cd "$(dirname "$0")"
 
-if ! command -v python3 &> /dev/null; then
-    echo "Error: python3 not found. Please install Python 3.11+ first."
+# Use python3 or python, whichever is available
+PYTHON=""
+if command -v python3 &> /dev/null; then
+    PYTHON="python3"
+elif command -v python &> /dev/null; then
+    PYTHON="python"
+else
+    echo "Error: python3 or python not found. Please install Python 3.11+ first."
     exit 1
 fi
 
-if ! command -v docker &> /dev/null; then
-    echo "Error: docker not found. Please install Docker first."
-    exit 1
-fi
-
-if [ ! -f .env ]; then
-    cp .env.example .env
-    echo "Created .env from .env.example. Please edit .env and add your OpenAI API key."
-fi
-
-echo "Starting PostgreSQL + pgvector..."
-docker compose up -d
-
-echo "Installing dependencies..."
-pip3 install -q -r requirements.txt
-
-echo "Installing Playwright browsers for Crawl4AI..."
-crawl4ai-setup
-
-echo "Waiting for PostgreSQL to be ready..."
-until docker compose exec -T postgres pg_isready -U postgres 2>/dev/null; do
-    sleep 2
-done
-
-echo "Setting up MCP server..."
-python3 -m src.init
+exec "$PYTHON" setup.py

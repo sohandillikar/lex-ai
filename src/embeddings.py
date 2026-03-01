@@ -1,10 +1,10 @@
 import os
-import time
 from openai import OpenAI
 
 MODEL = "text-embedding-3-small"
 DIMENSIONS = 1536
-BATCH_SIZE = 100
+# OpenAI allows 2048 inputs/request, 300k tokens total. ~500 tokens/chunk -> ~400 safe.
+BATCH_SIZE = 200
 
 _client: OpenAI | None = None
 
@@ -25,9 +25,6 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         response = client.embeddings.create(model=MODEL, input=batch)
         batch_embeddings = [item.embedding for item in response.data]
         all_embeddings.extend(batch_embeddings)
-
-        if i + BATCH_SIZE < len(texts):
-            time.sleep(0.1)
 
     return all_embeddings
 
