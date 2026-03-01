@@ -136,7 +136,13 @@ def main() -> None:
     wait_for_postgres()
 
     log("Setting up MCP server...")
-    run([sys.executable, "-m", "src.init"], cwd=PROJECT_ROOT)
+    client = os.environ.get("LEX_AI_MCP_CLIENT", "").lower()
+    init_args = [sys.executable, "-m", "src.init"]
+    if client == "cursor":
+        init_args.append("--cursor")
+    elif client == "claude":
+        init_args.append("--claude")
+    run(init_args, cwd=PROJECT_ROOT)
 
     log("\nSetup complete!")
 

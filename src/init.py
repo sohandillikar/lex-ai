@@ -1,4 +1,13 @@
+"""
+MCP server configuration wizard for lex-ai.
+
+Registers the lex-ai MCP server with Cursor or Claude Code.
+"""
+from __future__ import annotations
+
+import argparse
 import json
+import logging
 import os
 import shutil
 import sys
@@ -7,8 +16,9 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SERVER_NAME = "lex-ai"
+from src.config import PROJECT_ROOT, SERVER_NAME
+
+logger = logging.getLogger(__name__)
 
 
 def _load_env() -> dict[str, str]:
@@ -86,9 +96,31 @@ def _init_db() -> None:
 
 
 def main() -> None:
-    print("=" * 50)
-    print("  Documentation MCP — Setup")
-    print("=" * 50)
+    parser = argparse.ArgumentParser(
+        description="Configure the lex-ai MCP server for Cursor or Claude Code",
+    )
+    parser.add_argument(
+        "--cursor",
+        action="store_true",
+        help="Configure for Cursor (writes to ~/.cursor/mcp.json)",
+    )
+    parser.add_argument(
+        "--claude",
+        action="store_true",
+        help="Configure for Claude Code (writes to .mcp.json in project)",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress non-essential output",
+    )
+    args = parser.parse_args()
+
+    if not args.quiet:
+        print("=" * 50)
+        print("  Documentation MCP — Setup")
+        print("=" * 50)
 
     env = _load_env()
     for k, v in env.items():
@@ -98,21 +130,28 @@ def main() -> None:
 
     python_path = _detect_python()
 
-    print(f"\nDetected python: {python_path}")
-    print(f"Project root:    {PROJECT_ROOT}\n")
+    if not args.quiet:
+        print(f"\nDetected python: {python_path}")
+        print(f"Project root:    {PROJECT_ROOT}\n")
 
-    print("Which client are you configuring?")
-    print("  1. Cursor")
-    print("  2. Claude Code")
-
-    choice = input("\nEnter 1 or 2: ").strip()
-    if choice == "1":
+    config_path: Path
+    if args.cursor:
         config_path = Path.home() / ".cursor" / "mcp.json"
-    elif choice == "2":
+    elif args.claude:
         config_path = PROJECT_ROOT / ".mcp.json"
     else:
-        print("Invalid choice. Exiting.")
-        sys.exit(1)
+        print("Which client are you configuring?")
+        print("  1. Cursor")
+        print("  2. Claude Code")
+
+        choice = input("\nEnter 1 or 2: ").strip()
+        if choice == "1":
+            config_path = Path.home() / ".cursor" / "mcp.json"
+        elif choice == "2":
+            config_path = PROJECT_ROOT / ".mcp.json"
+        else:
+            print("Invalid choice. Exiting.")
+            sys.exit(1)
 
     config = _read_config(config_path)
     if "mcpServers" not in config:
@@ -123,8 +162,9 @@ def main() -> None:
     config["mcpServers"][SERVER_NAME] = server_config
 
     _write_config(config_path, config)
-    print(f"\n{action} '{SERVER_NAME}' in {config_path}")
-    print("Restart your client to pick up the new MCP server.")
+    if not args.quiet:
+        print(f"\n{action} '{SERVER_NAME}' in {config_path}")
+        print("Restart your client to pick up the new MCP server.")
 
 
 if __name__ == "__main__":

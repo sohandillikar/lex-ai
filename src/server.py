@@ -1,13 +1,29 @@
+"""
+MCP server for lex-ai.
+
+Exposes documentation search and scrape tools to Cursor and Claude Code.
+"""
+from __future__ import annotations
+
+import logging
+
 from dotenv import load_dotenv
+from mcp.server.fastmcp import FastMCP
+
+from src.db import get_connection, get_page_chunks, init_db, list_sources_with_counts, search
+from src.embeddings import embed_query
+from src.health import check_all, format_health_report
+from src.scrape import crawl_and_index
 
 load_dotenv()
 
-from mcp.server.fastmcp import FastMCP
-from src.embeddings import embed_query
-from src.db import get_connection, init_db, search, list_sources_with_counts, get_page_chunks
-from src.scrape import crawl_and_index
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
 
-mcp = FastMCP("Documentation Search")
+mcp = FastMCP(
+    "Documentation Search",
+    version="0.2.0",
+)
 
 _conn = None
 
@@ -30,7 +46,7 @@ def list_sources() -> str:
     conn = _get_conn()
     sources = list_sources_with_counts(conn)
     if not sources:
-        return "No documentation has been indexed yet. Run scrape.py first to index some docs."
+        return "No documentation has been indexed yet. Run scrape_docs or python -m src.scrape to index some docs."
     lines = [f"- {s['source_url']} ({s['chunk_count']} chunks)" for s in sources]
     return "Indexed documentation sources:\n" + "\n".join(lines)
 
@@ -108,6 +124,17 @@ def get_page(page_url: str) -> str:
 
 
 @mcp.tool()
+def health_check() -> str:
+    """Check that the lex-ai MCP server can connect to PostgreSQL and the OpenAI API.
+
+    Use this to verify your setup before scraping or searching. Returns status
+    for each dependency.
+    """
+    checks = check_all()
+    return format_health_report(checks)
+
+
+@mcp.tool()
 async def scrape_docs(url: str, max_depth: int = 3, max_pages: int = 50) -> str:
     """Scrape and index documentation from a URL so it becomes searchable.
 
@@ -127,7 +154,7 @@ async def scrape_docs(url: str, max_depth: int = 3, max_pages: int = 50) -> str:
         url = f"https://{url}"
 
     conn = _get_conn()
-    return await crawl_and_index(url, max_depth, max_pages, conn=conn)
+    return await crawl_and_index(url, max_depth, max_pages, conn=conn, verbose=False)
 
 
 if __name__ == "__main__":
