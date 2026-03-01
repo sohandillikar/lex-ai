@@ -3,6 +3,7 @@ import tiktoken
 
 TARGET_TOKENS = 500
 OVERLAP_TOKENS = 50
+MAX_CHUNK_TOKENS = 8191  # OpenAI text-embedding-3-small per-input limit
 
 _encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -64,6 +65,23 @@ def _split_to_target(text: str, target: int) -> list[str]:
     return _split_sentences(text, target)
 
 
+def _split_by_token_limit(text: str, max_tokens: int) -> list[str]:
+    """Split text into segments each of at most max_tokens (no overlap)."""
+    if not text.strip():
+        return []
+    tokens = _encoder.encode(text)
+    if len(tokens) <= max_tokens:
+        return [text] if text.strip() else []
+    result: list[str] = []
+    while len(tokens) > max_tokens:
+        segment_tokens = tokens[:max_tokens]
+        result.append(_encoder.decode(segment_tokens))
+        tokens = tokens[max_tokens:]
+    if tokens:
+        result.append(_encoder.decode(tokens))
+    return result
+
+
 def _split_sentences(text: str, target: int) -> list[str]:
     """Split by sentence boundaries when paragraphs are too large."""
     sentences = re.split(r"(?<=[.!?])\s+", text)
@@ -76,7 +94,12 @@ def _split_sentences(text: str, target: int) -> list[str]:
         else:
             if current:
                 chunks.append(current)
-            current = sentence
+            if _token_len(sentence) > MAX_CHUNK_TOKENS:
+                sub_chunks = _split_by_token_limit(sentence, TARGET_TOKENS)
+                chunks.extend(sub_chunks)
+                current = ""
+            else:
+                current = sentence
     if current:
         chunks.append(current)
     return chunks
@@ -115,6 +138,10 @@ def chunk_markdown(
         overlapped = _add_overlap(raw_chunks)
         for content in overlapped:
             if content.strip():
+                # Cap at embedding API limit (overlap can push a chunk over)
+                if _token_len(content) > MAX_CHUNK_TOKENS:
+                    tokens = _encoder.encode(content)
+                    content = _encoder.decode(tokens[:MAX_CHUNK_TOKENS])
                 all_chunks.append({
                     "source_url": source_url,
                     "page_url": page_url,
