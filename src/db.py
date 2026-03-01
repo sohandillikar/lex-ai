@@ -107,6 +107,28 @@ def search(
     ]
 
 
+def get_page_chunks(conn: psycopg.Connection, page_url: str) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, source_url, page_url, title, content
+        FROM doc_chunks
+        WHERE page_url = %s
+        ORDER BY id
+        """,
+        (page_url,),
+    ).fetchall()
+    return [
+        {
+            "id": row[0],
+            "source_url": row[1],
+            "page_url": row[2],
+            "title": row[3],
+            "content": row[4],
+        }
+        for row in rows
+    ]
+
+
 def list_sources(conn: psycopg.Connection) -> list[str]:
     rows = conn.execute(
         "SELECT DISTINCT source_url FROM doc_chunks ORDER BY source_url"
