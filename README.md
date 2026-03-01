@@ -1,6 +1,6 @@
-# Documentation MCP Server
+# Lex AI
 
-Scrape API/SDK documentation from any URL and query it through an MCP server in Cursor or Claude Code.
+Scrape documentation from any URL and search it via an MCP server in Cursor or Claude Code. Content is crawled (with JS rendering), chunked, embedded with OpenAI, and stored in PostgreSQL with pgvector.
 
 ## Prerequisites
 
@@ -10,96 +10,44 @@ Scrape API/SDK documentation from any URL and query it through an MCP server in 
 
 ## Setup
 
-### 1. Start PostgreSQL with pgvector
-
 ```bash
-docker compose up -d
+./setup.sh
 ```
 
-### 2. Install Python dependencies
-
-```bash
-pip install -r requirements.txt
-crawl4ai-setup  # installs Playwright browsers for JS rendering
-```
-
-### 3. Configure environment variables
-
-```bash
-cp .env.example .env
-# Edit .env and add your OpenAI API key
-```
+This starts PostgreSQL, installs Python dependencies and Playwright browsers (Crawl4AI), creates `.env` from `.env.example` if needed, and runs the MCP config wizard. Edit `.env` to add your OpenAI API key if you just created it.
 
 ## Usage
 
 ### Scrape documentation
 
-Run the scraper and paste a documentation URL when prompted:
+**Option A — CLI:** Run the scraper and enter a URL when prompted:
 
 ```bash
 python -m src.scrape
 ```
 
-You'll be asked for:
+You’ll be asked for URL, max depth (default 3), and max pages (default 200).
 
-- **URL** — the documentation site to scrape (e.g. `https://docs.stripe.com/`)
-- **Max depth** — how many link levels deep to crawl (default: 3)
-- **Max pages** — safety limit on total pages (default: 200)
+**Option B — MCP:** Use the `scrape_docs` tool from Cursor or Claude Code to crawl and index a URL; no CLI needed.
 
-The scraper will crawl the site, chunk the content, generate embeddings, and store everything in PostgreSQL.
+### Connect to Cursor or Claude Code
 
-### Connect to Cursor
+After setup, `src.init` will have added the **lex-ai** MCP server to your config. Restart Cursor or Claude Code so they pick it up.
 
-Add the MCP server to your Cursor configuration at `~/.cursor/mcp.json`:
+Set `OPENAI_API_KEY` and `DATABASE_URL` in your environment when using Claude Code.
 
-```json
-{
-  "mcpServers": {
-    "lex-ai": {
-      "command": "python",
-      "args": ["-m", "src.server"],
-      "cwd": "/absolute/path/to/documentation-mcp2",
-      "env": {
-        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/lex_ai",
-        "OPENAI_API_KEY": "sk-your-key-here"
-      }
-    }
-  }
-}
-```
+## MCP tools
 
-### Connect to Claude Code
-
-```bash
-claude mcp add lex-ai -- python -m src.server
-```
-
-Set the required environment variables (`DATABASE_URL`, `OPENAI_API_KEY`) in your shell before running Claude Code.
-
-## MCP Tool
-
-The server exposes a single tool:
-
-### `search_docs`
-
-| Parameter    | Type   | Default | Description                                                      |
-| ------------ | ------ | ------- | ---------------------------------------------------------------- |
-| `query`      | string | —       | What you're looking for in the docs                              |
-| `source_url` | string | `""`    | Filter to a specific doc source (e.g. `https://docs.stripe.com`) |
-| `limit`      | int    | `5`     | Number of results (max 20)                                       |
+| Tool           | Description                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `list_sources` | List indexed documentation sources and chunk counts. Use before searching to get `source_url` values.         |
+| `search_docs`  | Semantic search over indexed docs. Args: `query`, optional `source_url`, `limit` (default 5, max 20).         |
+| `get_page`     | Return full content of a page by URL (e.g. from a `search_docs` result).                                      |
+| `scrape_docs`  | Crawl and index a documentation URL. Args: `url`, optional `max_depth` (default 3), `max_pages` (default 50). |
 
 ## Architecture
 
 ```
-User pastes URL
-  → Crawl4AI (deep crawl with JS rendering)
-  → Markdown conversion
-  → Text chunking (~500 tokens)
-  → OpenAI embeddings (text-embedding-3-small)
-  → PostgreSQL + pgvector
-
-Cursor/Claude Code
-  → MCP stdio server
-  → Embed query → cosine similarity search
-  → Return relevant documentation chunks
+Scrape: URL → Crawl4AI (JS) → Markdown → Chunks (~500 tokens) → OpenAI embeddings → PostgreSQL + pgvector
+Query:  Cursor/Claude → MCP → embed query → similarity search → doc chunks
 ```

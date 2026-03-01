@@ -14,8 +14,8 @@ if ! command -v docker &> /dev/null; then
 fi
 
 if [ ! -f .env ]; then
-    echo "Error: .env file not found. Copy .env.example to .env and fill in your values."
-    exit 1
+    cp .env.example .env
+    echo "Created .env from .env.example. Please edit .env and add your OpenAI API key."
 fi
 
 echo "Starting PostgreSQL + pgvector..."
@@ -23,6 +23,9 @@ docker compose up -d
 
 echo "Installing dependencies..."
 pip3 install -q -r requirements.txt
+
+echo "Installing Playwright browsers for Crawl4AI..."
+crawl4ai-setup
 
 echo "Waiting for PostgreSQL to be ready..."
 until docker compose exec -T postgres pg_isready -U postgres 2>/dev/null; do
