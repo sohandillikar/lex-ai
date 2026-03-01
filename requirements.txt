@@ -1,0 +1,7 @@
+crawl4ai
+mcp
+psycopg[binary]
+pgvector
+openai
+tiktoken
+python-dotenv
