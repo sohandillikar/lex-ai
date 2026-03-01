@@ -1,0 +1,104 @@
+import json
+import shutil
+import sys
+from pathlib import Path
+
+from dotenv import dotenv_values
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SERVER_NAME = "docs-search"
+
+
+def _load_env() -> dict[str, str]:
+    env_file = PROJECT_ROOT / ".env"
+    if not env_file.exists():
+        print(f"Error: .env file not found at {env_file}")
+        print("Copy .env.example to .env and fill in your values first.")
+        sys.exit(1)
+
+    values = dotenv_values(env_file)
+    missing = [k for k in ("DATABASE_URL", "OPENAI_API_KEY") if not values.get(k)]
+    if missing:
+        print(f"Error: missing required variables in .env: {', '.join(missing)}")
+        sys.exit(1)
+
+    return values
+
+
+def _detect_python() -> str:
+    python_path = shutil.which("python3")
+    if not python_path:
+        python_path = shutil.which("python")
+    if not python_path:
+        print("Error: could not find python3 or python on PATH.")
+        sys.exit(1)
+    return python_path
+
+
+def _build_server_config(env: dict[str, str], python_path: str) -> dict:
+    cwd = str(PROJECT_ROOT)
+    return {
+        "command": python_path,
+        "args": ["-m", "src.server"],
+        "cwd": cwd,
+        "env": {
+            "PYTHONPATH": cwd,
+            "DATABASE_URL": env["DATABASE_URL"],
+            "OPENAI_API_KEY": env["OPENAI_API_KEY"],
+        },
+    }
+
+
+def _read_config(path: Path) -> dict:
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"mcpServers": {}}
+
+
+def _write_config(path: Path, config: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2) + "\n")
+
+
+def main() -> None:
+    print("=" * 50)
+    print("  Documentation MCP — Setup")
+    print("=" * 50)
+
+    env = _load_env()
+    python_path = _detect_python()
+
+    print(f"\nDetected python: {python_path}")
+    print(f"Project root:    {PROJECT_ROOT}\n")
+
+    print("Which client are you configuring?")
+    print("  1. Cursor")
+    print("  2. Claude Code")
+
+    choice = input("\nEnter 1 or 2: ").strip()
+    if choice == "1":
+        config_path = Path.home() / ".cursor" / "mcp.json"
+    elif choice == "2":
+        config_path = PROJECT_ROOT / ".mcp.json"
+    else:
+        print("Invalid choice. Exiting.")
+        sys.exit(1)
+
+    config = _read_config(config_path)
+    if "mcpServers" not in config:
+        config["mcpServers"] = {}
+
+    server_config = _build_server_config(env, python_path)
+    action = "Updated" if SERVER_NAME in config["mcpServers"] else "Added"
+    config["mcpServers"][SERVER_NAME] = server_config
+
+    _write_config(config_path, config)
+    print(f"\n{action} '{SERVER_NAME}' in {config_path}")
+    print("Restart your client to pick up the new MCP server.")
+
+
+if __name__ == "__main__":
+    main()
