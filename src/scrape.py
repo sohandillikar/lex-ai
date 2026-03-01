@@ -23,12 +23,19 @@ def _normalize_source_url(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-async def crawl_and_index(url: str, max_depth: int, max_pages: int) -> None:
+async def crawl_and_index(
+    url: str,
+    max_depth: int,
+    max_pages: int,
+    conn=None,
+) -> str:
     source_url = _normalize_source_url(url)
+    owns_conn = conn is None
 
-    print(f"\n--- Connecting to database ---")
-    conn = get_connection()
-    init_db(conn)
+    if owns_conn:
+        print(f"\n--- Connecting to database ---")
+        conn = get_connection()
+        init_db(conn)
 
     existing = delete_source(conn, source_url)
     if existing:
@@ -56,9 +63,9 @@ async def crawl_and_index(url: str, max_depth: int, max_pages: int) -> None:
     print(f"Crawled {len(results)} pages, {len(successful)} with content\n")
 
     if not successful:
-        print("No content found. Check the URL and try again.")
-        conn.close()
-        return
+        if owns_conn:
+            conn.close()
+        return f"No content found from {source_url}. Check the URL and try again."
 
     print("--- Chunking pages ---")
     all_chunks: list[dict] = []
@@ -72,9 +79,9 @@ async def crawl_and_index(url: str, max_depth: int, max_pages: int) -> None:
     print(f"Created {len(all_chunks)} chunks from {len(successful)} pages\n")
 
     if not all_chunks:
-        print("No chunks created. The pages may have had no meaningful content.")
-        conn.close()
-        return
+        if owns_conn:
+            conn.close()
+        return f"No chunks created from {source_url}. The pages may have had no meaningful content."
 
     print("--- Generating embeddings ---")
     texts = [c["content"] for c in all_chunks]
@@ -87,8 +94,12 @@ async def crawl_and_index(url: str, max_depth: int, max_pages: int) -> None:
     count = insert_chunks(conn, all_chunks)
     print(f"Stored {count} chunks\n")
 
-    conn.close()
-    print(f"Done! Documentation from {source_url} is now indexed and searchable.")
+    if owns_conn:
+        conn.close()
+
+    summary = f"Done! Scraped {len(successful)} pages, created {count} chunks from {source_url}."
+    print(summary)
+    return summary
 
 
 def main() -> None:

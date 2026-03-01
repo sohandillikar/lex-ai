@@ -4,7 +4,8 @@ load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
 from src.embeddings import embed_query
-from src.db import get_connection, init_db, search, list_sources_with_counts
+from src.db import get_connection, init_db, search, list_sources_with_counts, get_page_chunks
+from src.scrape import crawl_and_index
 
 mcp = FastMCP("Documentation Search")
 
@@ -81,6 +82,52 @@ def search_docs(query: str, source_url: str = "", limit: int = 5) -> str:
         parts.append("")
 
     return "\n".join(parts)
+
+
+@mcp.tool()
+def get_page(page_url: str) -> str:
+    """Retrieve the full content of a specific documentation page by its URL.
+
+    Use this after search_docs returns a relevant result and you need more
+    context from the same page. Pass the page_url value from the search result.
+
+    Args:
+        page_url: The exact page URL as returned by search_docs.
+    """
+    conn = _get_conn()
+    chunks = get_page_chunks(conn, page_url)
+
+    if not chunks:
+        return f"No content found for page: {page_url}"
+
+    title = chunks[0]["title"] or "Untitled"
+    source = chunks[0]["source_url"]
+    body = "\n\n".join(c["content"] for c in chunks)
+
+    return f"# {title}\n**Source:** {page_url} (from {source})\n\n{body}"
+
+
+@mcp.tool()
+async def scrape_docs(url: str, max_depth: int = 3, max_pages: int = 50) -> str:
+    """Scrape and index documentation from a URL so it becomes searchable.
+
+    This crawls the documentation site, converts pages to markdown, chunks
+    the content, generates embeddings, and stores everything in the database.
+    After scraping, the documentation will be available via search_docs.
+
+    Args:
+        url: The documentation URL to scrape (e.g. "https://docs.stripe.com/").
+        max_depth: How many link levels deep to crawl (default 3).
+        max_pages: Maximum number of pages to crawl (default 50).
+    """
+    if not url.strip():
+        return "Please provide a URL to scrape."
+
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+
+    conn = _get_conn()
+    return await crawl_and_index(url, max_depth, max_pages, conn=conn)
 
 
 if __name__ == "__main__":
