@@ -4,7 +4,7 @@ from pgvector.psycopg import register_vector
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/docs_mcp",
+    "postgresql://postgres:postgres@localhost:5432/lex_ai",
 )
 
 

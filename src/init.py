@@ -1,12 +1,14 @@
 import json
+import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from dotenv import dotenv_values
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SERVER_NAME = "docs-search"
+SERVER_NAME = "lex-ai"
 
 
 def _load_env() -> dict[str, str]:
@@ -63,12 +65,37 @@ def _write_config(path: Path, config: dict) -> None:
     path.write_text(json.dumps(config, indent=2) + "\n")
 
 
+def _init_db() -> None:
+    from src.db import get_connection, init_db
+
+    max_attempts = 5
+    delay_seconds = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn = get_connection()
+            init_db(conn)
+            conn.close()
+            print("Database tables initialized.")
+            return
+        except Exception as e:
+            if attempt == max_attempts:
+                print("Could not connect to PostgreSQL. Is the database running?")
+                print(f"Error: {e}")
+                sys.exit(1)
+            time.sleep(delay_seconds)
+
+
 def main() -> None:
     print("=" * 50)
     print("  Documentation MCP — Setup")
     print("=" * 50)
 
     env = _load_env()
+    for k, v in env.items():
+        os.environ[k] = str(v) if v else os.environ.get(k, "")
+
+    _init_db()
+
     python_path = _detect_python()
 
     print(f"\nDetected python: {python_path}")

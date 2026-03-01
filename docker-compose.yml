@@ -3,7 +3,7 @@ services:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
-      POSTGRES_DB: docs_mcp
+      POSTGRES_DB: lex_ai
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:

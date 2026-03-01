@@ -24,5 +24,10 @@ docker compose up -d
 echo "Installing dependencies..."
 pip3 install -q -r requirements.txt
 
+echo "Waiting for PostgreSQL to be ready..."
+until docker compose exec -T postgres pg_isready -U postgres 2>/dev/null; do
+    sleep 2
+done
+
 echo "Setting up MCP server..."
 python3 -m src.init

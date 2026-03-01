@@ -41,6 +41,7 @@ python -m src.scrape
 ```
 
 You'll be asked for:
+
 - **URL** — the documentation site to scrape (e.g. `https://docs.stripe.com/`)
 - **Max depth** — how many link levels deep to crawl (default: 3)
 - **Max pages** — safety limit on total pages (default: 200)
@@ -54,12 +55,12 @@ Add the MCP server to your Cursor configuration at `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "docs-search": {
+    "lex-ai": {
       "command": "python",
       "args": ["-m", "src.server"],
       "cwd": "/absolute/path/to/documentation-mcp2",
       "env": {
-        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/docs_mcp",
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/lex_ai",
         "OPENAI_API_KEY": "sk-your-key-here"
       }
     }
@@ -70,7 +71,7 @@ Add the MCP server to your Cursor configuration at `~/.cursor/mcp.json`:
 ### Connect to Claude Code
 
 ```bash
-claude mcp add docs-search -- python -m src.server
+claude mcp add lex-ai -- python -m src.server
 ```
 
 Set the required environment variables (`DATABASE_URL`, `OPENAI_API_KEY`) in your shell before running Claude Code.
@@ -81,11 +82,11 @@ The server exposes a single tool:
 
 ### `search_docs`
 
-| Parameter    | Type   | Default | Description                                      |
-|------------- |--------|---------|--------------------------------------------------|
-| `query`      | string | —       | What you're looking for in the docs               |
+| Parameter    | Type   | Default | Description                                                      |
+| ------------ | ------ | ------- | ---------------------------------------------------------------- |
+| `query`      | string | —       | What you're looking for in the docs                              |
 | `source_url` | string | `""`    | Filter to a specific doc source (e.g. `https://docs.stripe.com`) |
-| `limit`      | int    | `5`     | Number of results (max 20)                        |
+| `limit`      | int    | `5`     | Number of results (max 20)                                       |
 
 ## Architecture
 
